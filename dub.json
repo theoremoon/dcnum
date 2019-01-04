@@ -1,0 +1,10 @@
+{
+	"description": "dc like multiprecision number using std.bigint",
+	"license": "MIT",
+	"authors": [
+		"theoldmoon0602"
+	],
+	"copyright": "Copyright © 2019, theoldmoon0602",
+	"name": "dcnum",
+  "targetType": "library"
+}
