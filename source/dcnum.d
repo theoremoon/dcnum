@@ -31,6 +31,11 @@ struct DCNum {
         scale = cast(uint)(s.length - p) - 1;
       }
     }
+    this(long v, uint div_scale) {
+      this(v);
+      this.div_scale = div_scale;
+    }
+
     this(string s, uint div_scale) {
       this(s);
       this.div_scale = div_scale;
