@@ -48,14 +48,17 @@ struct DCNum {
 
     DCNum rescaled(uint new_scale) {
       DCNum r;
-      if (new_scale > scale) {
-        r.number = number * pow(10, new_scale - scale);
-      } else if (new_scale < scale) {
-        r.number = number / pow(10, scale - new_scale);
-      } else {
-        r.number = number;
-      }
+      r.number = number;
 
+      if (new_scale > scale) {
+        foreach (_; 0..new_scale-scale) {
+          r.number *= 10;
+        }
+      } else if (new_scale < scale) {
+        foreach (_; 0..scale-new_scale) {
+          r.number /= 10;
+        }
+      }
       r.scale = new_scale;
       return r;
     }
@@ -185,4 +188,8 @@ unittest {
   assert(DCNum("-1234.56").toLong == -1234);
   assert(DCNum("0.1234").toLong == 0);
   assert(DCNum("-0.1234").toLong == -0);
+
+  assert(DCNum(2, 10) / DCNum(1, 10) == DCNum("2.0000000000"));
+  assert(DCNum(2, 30) / DCNum(1, 10) == DCNum("2.000000000000000000000000000000"));
+  assert(DCNum(2, 100) / DCNum(1, 10) == DCNum("2.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"));
 }
