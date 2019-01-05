@@ -14,6 +14,10 @@ struct DCNum {
     uint div_scale = 0;  // keep scale when this is divided
 
   public:
+    this(long v) {
+      number = v;
+      scale = 0;
+    }
     this(string s) {
       long p = s.indexOf('.');
 
@@ -32,12 +36,17 @@ struct DCNum {
       this.div_scale = div_scale;
     }
 
+    long toLong() {
+      auto n = this.rescaled(0);
+      return n.number.toLong();
+    }
+
     DCNum rescaled(uint new_scale) {
       DCNum r;
       if (new_scale > scale) {
         r.number = number * pow(10, new_scale - scale);
       } else if (new_scale < scale) {
-        r.number = number / pow(10, new_scale - scale);
+        r.number = number / pow(10, scale - new_scale);
       } else {
         r.number = number;
       }
@@ -164,4 +173,11 @@ unittest {
   assert(DCNum("-1234.56").toString == "-1234.56");
   assert(DCNum("0.1234").toString == "0.1234");
   assert(DCNum("-0.1234").toString == "-0.1234");
+
+  assert(DCNum("1234").toLong == 1234);
+  assert(DCNum("-1234").toLong == -1234);
+  assert(DCNum("1234.56").toLong == 1234);
+  assert(DCNum("-1234.56").toLong == -1234);
+  assert(DCNum("0.1234").toLong == 0);
+  assert(DCNum("-0.1234").toLong == -0);
 }
