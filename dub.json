@@ -1,10 +1,10 @@
 {
-	"description": "dc like multiprecision number using std.bigint",
-	"license": "MIT",
-	"authors": [
-		"theoldmoon0602"
-	],
-	"copyright": "Copyright © 2019, theoldmoon0602",
-	"name": "dcnum",
+  "description": "Arbitrary Precision Number Library from DC",
+  "license": "MIT",
+  "authors": [
+    "theoremoon"
+  ],
+  "copyright": "Copyright © 2019, theoremoon",
+  "name": "dcnum",
   "targetType": "library"
 }
