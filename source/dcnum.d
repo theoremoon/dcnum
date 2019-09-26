@@ -26,12 +26,12 @@ private:
     uint scale; // number of digits after the decimal point.
     ubyte[] value; // array of digits. from higher digit to lower digit.
 
-    this(bool sign, uint len, uint scale, ubyte[] value)
+    this(bool sign, uint len, uint scale, in ubyte[] value) pure
     {
         this.sign = sign;
         this.len = len;
         this.scale = scale;
-        this.value = value;
+        this.value = value.dup;
     }
 
 public:
@@ -253,59 +253,72 @@ public:
         assert(DCNum("-10.1").to!string == "-10.1");
     }
 
-    /// if this is larger than rhs, return 1. smaller than rhs, then return -1. if this and rhs are same, return 0;
-    private int cmp(in DCNum rhs, bool ignore_sign = false) pure const
+    bool isZero() pure const
+    {
+        return this.value == [0];
+    }
+
+    unittest
+    {
+        assert(DCNum("0").isZero);
+        assert(DCNum("-0").isZero);
+        assert((DCNum("10") - DCNum("10")).isZero);
+        assert(!(DCNum("10") - DCNum("9.99999999")).isZero);
+    }
+
+    /// if lhs is larger than rhs, return 1. if lhs is smaller than rhs, then return -1. if lhs and rhs are same, return 0;
+    private static int cmp(in DCNum lhs, in DCNum rhs, bool ignore_sign = false) pure
     {
         // compare sign
-        if (this.sign == false && rhs.sign == true && ignore_sign == false)
+        if (lhs.sign == false && rhs.sign == true && ignore_sign == false)
         {
             return 1;
         }
-        else if (this.sign == true && rhs.sign == false && ignore_sign == false)
+        else if (lhs.sign == true && rhs.sign == false && ignore_sign == false)
         {
             return -1;
         }
-        int sign = (this.sign && ignore_sign == false) ? -1 : 1;
+        int sign = (lhs.sign && ignore_sign == false) ? -1 : 1;
 
         // compare size of integer part
-        if (this.len > rhs.len)
+        if (lhs.len > rhs.len)
         {
             return sign;
         }
-        else if (this.len < rhs.len)
+        else if (lhs.len < rhs.len)
         {
             return -sign;
         }
 
         // compare integer parts
-        foreach (i; 0 .. this.len)
+        foreach (i; 0 .. lhs.len)
         {
-            if (this.value[i] > rhs.value[i])
+            if (lhs.value[i] > rhs.value[i])
             {
                 return sign;
             }
-            else if (this.value[i] < rhs.value[i])
+            else if (lhs.value[i] < rhs.value[i])
             {
                 return -sign;
             }
         }
 
         // compare fraction parts
-        foreach (i; 0 .. min(this.scale, rhs.scale))
+        foreach (i; 0 .. min(lhs.scale, rhs.scale))
         {
-            if (this.value[this.len + i] > rhs.value[rhs.len + i])
+            if (lhs.value[lhs.len + i] > rhs.value[rhs.len + i])
             {
                 return sign;
             }
-            else if (this.value[this.len + i] < rhs.value[rhs.len + i])
+            else if (lhs.value[lhs.len + i] < rhs.value[rhs.len + i])
             {
                 return -sign;
             }
         }
 
-        if (this.scale > rhs.scale)
+        if (lhs.scale > rhs.scale)
         {
-            if (this.value[(this.len + rhs.scale) .. $].all!"a == 0")
+            if (lhs.value[(lhs.len + rhs.scale) .. $].all!"a == 0")
             {
                 return 0;
             }
@@ -313,7 +326,7 @@ public:
         }
         else
         {
-            if (rhs.value[(rhs.len + this.scale) .. $].all!"a == 0")
+            if (rhs.value[(rhs.len + lhs.scale) .. $].all!"a == 0")
             {
                 return 0;
             }
@@ -323,12 +336,12 @@ public:
 
     bool opEquals(in DCNum rhs) const pure
     {
-        return this.cmp(rhs) == 0;
+        return DCNum.cmp(this, rhs) == 0;
     }
 
     int opCmp(in DCNum rhs) const pure
     {
-        return this.cmp(rhs);
+        return DCNum.cmp(this, rhs);
     }
 
     unittest
@@ -343,39 +356,39 @@ public:
         assert(DCNum("0.1") < DCNum("0.101"));
     }
 
-    /// add this and rhs
+    /// add lhs and rhs
     /// this function ignore sign
-    private DCNum add(DCNum rhs)
+    private static DCNum add(in DCNum lhs, in DCNum rhs) pure
     {
-        ubyte[] this_value = this.value;
-        ubyte[] rhs_value = rhs.value;
+        ubyte[] lhs_value = lhs.value.dup;
+        ubyte[] rhs_value = rhs.value.dup;
 
         // align digits before the decimal point
-        if (this.len > rhs.len)
+        if (lhs.len > rhs.len)
         {
-            rhs_value = new ubyte[](this.len - rhs.len) ~ rhs_value;
+            rhs_value = new ubyte[](lhs.len - rhs.len) ~ rhs_value;
         }
-        else if (this.len < rhs.len)
+        else if (lhs.len < rhs.len)
         {
-            this_value = new ubyte[](rhs.len - this.len) ~ this_value;
+            lhs_value = new ubyte[](rhs.len - lhs.len) ~ lhs_value;
         }
 
         // align digits after the decimal point
-        if (this.scale > rhs.scale)
+        if (lhs.scale > rhs.scale)
         {
-            rhs_value = rhs_value ~ new ubyte[](this.scale - rhs.scale);
+            rhs_value = rhs_value ~ new ubyte[](lhs.scale - rhs.scale);
         }
-        else if (this.scale < rhs.scale)
+        else if (lhs.scale < rhs.scale)
         {
-            this_value = this_value ~ new ubyte[](rhs.scale - this.scale);
+            lhs_value = lhs_value ~ new ubyte[](rhs.scale - lhs.scale);
         }
 
         // addition digit by digit
         ubyte carry = 0;
-        ubyte[] buf = new ubyte[](this_value.length);
-        foreach_reverse (i; 0 .. this_value.length)
+        ubyte[] buf = new ubyte[](lhs_value.length);
+        foreach_reverse (i; 0 .. lhs_value.length)
         {
-            buf[i] = cast(ubyte)(this_value[i] + rhs_value[i] + carry);
+            buf[i] = cast(ubyte)(lhs_value[i] + rhs_value[i] + carry);
             if (buf[i] >= BASE)
             {
                 carry = 1;
@@ -387,8 +400,8 @@ public:
             }
         }
 
-        const uint new_scale = max(this.scale, rhs.scale);
-        uint new_len = max(this.len, rhs.len);
+        const uint new_scale = max(lhs.scale, rhs.scale);
+        uint new_len = max(lhs.len, rhs.len);
         if (carry)
         {
             buf = cast(ubyte[])[1] ~ buf;
@@ -397,77 +410,76 @@ public:
         return DCNum(false, new_len, new_scale, buf);
     }
 
-    /// subtract rhs from this. this must be larger than rhs on magnitude
-    private DCNum sub(DCNum rhs)
+    /// subtract rhs from lhs. lhs must be larger than rhs on magnitude
+    private static DCNum sub(in DCNum lhs, in DCNum rhs) pure
     {
-        ubyte[] this_value = this.value;
+        ubyte[] lhs_value = lhs.value.dup;
 
         // align digits after the decimal point
-        if (this.scale < rhs.scale)
+        if (lhs.scale < rhs.scale)
         {
-            this_value = this_value ~ new ubyte[](rhs.scale - this.scale);
+            lhs_value = lhs_value ~ new ubyte[](rhs.scale - lhs.scale);
         }
 
         ubyte borrow = 0;
-        const pad = this.len - rhs.len;
+        const pad = lhs.len - rhs.len;
         foreach_reverse (i; 0 .. (rhs.len + rhs.scale))
         {
-            if (this_value[pad + i] < rhs.value[i] + borrow)
+            if (lhs_value[pad + i] < rhs.value[i] + borrow)
             {
-                this_value[pad + i] = cast(ubyte)((10 + this_value[pad + i]) - (
-                        rhs.value[i] + borrow));
+                lhs_value[pad + i] = cast(ubyte)((10 + lhs_value[pad + i]) - (rhs.value[i] + borrow));
                 borrow = 1;
             }
             else
             {
-                this_value[pad + i] = cast(ubyte)(this_value[pad + i] - (rhs.value[i] + borrow));
+                lhs_value[pad + i] = cast(ubyte)(lhs_value[pad + i] - (rhs.value[i] + borrow));
                 borrow = 0;
             }
         }
         if (borrow)
         {
-            this_value[pad - 1]--;
+            lhs_value[pad - 1]--;
         }
 
-        uint new_scale = max(this.scale, rhs.scale);
-        uint new_len = this.len;
+        uint new_scale = max(lhs.scale, rhs.scale);
+        uint new_len = lhs.len;
 
         // shrink value
         uint p = 0;
-        while (p < new_len && this_value[p] == 0)
+        while (p < new_len && lhs_value[p] == 0)
         {
             p++;
         }
-        this_value = this_value[p .. $];
+        lhs_value = lhs_value[p .. $];
         new_len -= p;
 
-        return DCNum(false, new_len, new_scale, this_value);
+        return DCNum(false, new_len, new_scale, lhs_value);
     }
 
-    DCNum opBinary(string op : "+")(DCNum rhs)
+    DCNum opBinary(string op : "+")(in DCNum rhs) const pure
     {
         if (this.sign == false && rhs.sign == false)
         {
-            return this.add(rhs);
+            return DCNum.add(this, rhs);
         }
         else if (this.sign == true && rhs.sign == true)
         {
-            auto v = this.add(rhs);
+            auto v = DCNum.add(this, rhs);
             v.sign = true;
             return v;
         }
         else
         {
-            switch (this.cmp(rhs, true))
+            switch (DCNum.cmp(this, rhs, true))
             {
             case 0:
                 return DCNum(0);
             case 1:
-                auto v = this.sub(rhs);
+                auto v = DCNum.sub(this, rhs);
                 v.sign = this.sign;
                 return v;
             case -1:
-                auto v = rhs.sub(this);
+                auto v = DCNum.sub(rhs, this);
                 v.sign = rhs.sign;
                 return v;
             default:
@@ -490,30 +502,30 @@ public:
         assert((DCNum("10.1") + DCNum("-5")).to!string == "5.1");
     }
 
-    DCNum opBinary(string op : "-")(DCNum rhs)
+    DCNum opBinary(string op : "-")(in DCNum rhs) pure const
     {
         if (this.sign == false && rhs.sign == true)
         {
-            return this.add(rhs);
+            return DCNum.add(this, rhs);
         }
         else if (this.sign == true && rhs.sign == false)
         {
-            auto v = this.add(rhs);
+            auto v = DCNum.add(this, rhs);
             v.sign = true;
             return v;
         }
         else
         {
-            switch (this.cmp(rhs, true))
+            switch (DCNum.cmp(this, rhs, true))
             {
             case 0:
                 return DCNum(0);
             case 1:
-                auto v = this.sub(rhs);
+                auto v = DCNum.sub(this, rhs);
                 v.sign = this.sign;
                 return v;
             case -1:
-                auto v = rhs.sub(this);
+                auto v = DCNum.sub(rhs, this);
                 v.sign = !rhs.sign;
                 return v;
             default:
@@ -535,4 +547,119 @@ public:
         assert((DCNum("0.1") - DCNum("-0.050")).to!string == "0.150");
         assert((DCNum("10.1") - DCNum("-5")).to!string == "15.1");
     }
+
+    /// simple multiply by karatsuba method.
+    /// this function ignores sign
+    private static DCNum mul(in DCNum lhs, in DCNum rhs) pure
+    {
+        const bytes_to_long = (in ubyte[] xs) {
+            long y = 0;
+            foreach (x; xs)
+            {
+                y = y * 10 + x;
+            }
+            return y;
+        };
+        const long_to_bytes = (long x) {
+            ubyte[] xs = [];
+            while (x != 0)
+            {
+                xs ~= cast(ubyte)(x % 10);
+                x /= 10;
+            }
+            return reverse(xs);
+        };
+
+        const max_base_size = cast(int)(log10(long.max) / 2);
+
+        // decide base size
+        const base_size = max((lhs.len + lhs.scale + 1) / 2, (rhs.len + rhs.scale + 1) / 2);
+
+        // if both are small, calculate as long
+        if (lhs.len + lhs.scale + rhs.len + rhs.scale < max_base_size)
+        {
+            const long x = bytes_to_long(lhs.value);
+            const long y = bytes_to_long(rhs.value);
+            const long z = x * y;
+            ubyte[] buf = long_to_bytes(z);
+            const uint new_scale = lhs.scale + rhs.scale;
+            return DCNum(false, cast(uint)(buf.length - new_scale), new_scale, buf);
+        }
+
+        assert(base_size <= max_base_size); // TODO
+
+        // split x -> x1 || x0
+        const long x0 = bytes_to_long(lhs.value[max(cast(int)($ - base_size), 0) .. $]);
+        const long x1 = bytes_to_long(lhs.value[0 .. max(cast(int)($ - base_size), 0)]);
+        const long y0 = bytes_to_long(rhs.value[max(cast(int)($ - base_size), 0) .. $]);
+        const long y1 = bytes_to_long(rhs.value[0 .. max(cast(int)($ - base_size), 0)]);
+
+        // karatsuba algorithm
+        const long z0 = x0 * y0;
+        const long z2 = x1 * y1;
+        const long z1 = z2 + z0 - (x1 - x0) * (y1 - y0);
+
+        // buf0 = z0, buf1 = z1 * base, buf2 = z2 * base^2
+        const buf0 = long_to_bytes(z0);
+        const buf1 = long_to_bytes(z1) ~ new ubyte[](base_size);
+        const buf2 = long_to_bytes(z2) ~ new ubyte[](base_size * 2);
+
+        // convert to DCNum
+        const v0 = DCNum(false, cast(int) buf0.length, 0, buf0);
+        const v1 = DCNum(false, cast(int) buf1.length, 0, buf1);
+        const v2 = DCNum(false, cast(int) buf2.length, 0, buf2);
+
+        // summing
+        auto v = v0 + v1 + v2;
+
+        // remove reading zeroes
+        long p = 0;
+        while (p < v.len && v.value[p] == 0)
+        {
+            p++;
+        }
+        v.value = v.value[p .. $];
+        v.len -= p;
+
+        // set scale
+        v.scale = lhs.scale + rhs.scale;
+        v.len -= v.scale;
+        return v;
+    }
+
+    DCNum opBinary(string op : "*")(DCNum rhs) const pure
+    {
+        if (this.isZero || rhs.isZero)
+        {
+            return DCNum(0);
+        }
+
+        auto v = DCNum.mul(this, rhs);
+        if (this.sign != rhs.sign)
+        {
+            v.sign = true;
+        }
+        return v;
+    }
+
+    unittest
+    {
+        // normal values
+        assert((DCNum(0) * DCNum(1)).to!string == "0");
+        assert((DCNum(1) * DCNum(1)).to!string == "1");
+        assert((DCNum(-1) * DCNum(1)).to!string == "-1");
+        assert((DCNum(-1) * DCNum(-1)).to!string == "1");
+        assert((DCNum(100000) * DCNum(70)).to!string == "7000000");
+        assert((DCNum("987654321123456789") * DCNum("100000000"))
+                .to!string == "98765432112345678900000000");
+
+        // decimal values
+        assert((DCNum("100000.123") * DCNum("100")).to!string == "10000012.300");
+        assert((DCNum("100000.123") * DCNum("0.01")).to!string == "1000.00123");
+
+        // very large number
+        assert((DCNum("9876543211234567899") * DCNum("100000000"))
+                .to!string == "987654321123456789900000000");
+    }
+
 }
