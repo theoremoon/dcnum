@@ -613,7 +613,7 @@ public:
             const long z = x * y;
             ubyte[] buf = long_to_bytes(z);
             const uint new_scale = lhs.scale + rhs.scale;
-            return DCNum(false, buf.length - new_scale, new_scale, buf);
+            return DCNum(false, 0, 0, buf);
         }
 
         assert(base_size <= max_base_size); // TODO
@@ -655,6 +655,10 @@ public:
 
         auto v = DCNum.mul(this, rhs);
         v.scale = this.scale + rhs.scale;
+        if (v.value.length < v.scale)
+        {
+            v.value = new ubyte[](v.scale - v.value.length) ~ v.value;
+        }
         v.len = to!uint(v.value.length - v.scale);
         if (this.sign != rhs.sign)
         {
@@ -676,6 +680,7 @@ public:
 
         // decimal values
         assert((DCNum("100000.123") * DCNum("100")).to!string == "10000012.300");
+        assert((DCNum("0.123") * DCNum("0.01")).to!string == "0.00123"); // very large number
         assert((DCNum("100000.123") * DCNum("0.01")).to!string == "1000.00123"); // very large number
         assert((DCNum("9876543211234567899") * DCNum("100000000"))
                 .to!string == "987654321123456789900000000");
