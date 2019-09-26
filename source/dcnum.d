@@ -26,11 +26,12 @@ private:
     uint scale; // number of digits after the decimal point.
     ubyte[] value; // array of digits. from higher digit to lower digit.
 
-    this(bool sign, uint len, uint scale, in ubyte[] value) pure
+    this(T, U)(bool sign, T len, U scale, in ubyte[] value) pure 
+            if (isIntegral!T && isIntegral!U)
     {
         this.sign = sign;
-        this.len = len;
-        this.scale = scale;
+        this.len = len.to!uint;
+        this.scale = scale.to!uint;
         this.value = value.dup;
     }
 
@@ -549,7 +550,7 @@ public:
     }
 
     /// simple multiply by karatsuba method.
-    /// this function ignores sign
+    /// this function ignores sign and scale, caller should set len and scale ownselfe
     private static DCNum mul(in DCNum lhs, in DCNum rhs) pure
     {
         const bytes_to_long = (in ubyte[] xs) {
@@ -569,11 +570,40 @@ public:
             }
             return reverse(xs);
         };
-
         const max_base_size = cast(int)(log10(long.max) / 2);
 
         // decide base size
-        const base_size = max((lhs.len + lhs.scale + 1) / 2, (rhs.len + rhs.scale + 1) / 2);
+        const lhs_size = (lhs.len + lhs.scale + 1) / 2;
+        const rhs_size = (rhs.len + rhs.scale + 1) / 2;
+
+        if (lhs_size > max_base_size)
+        {
+            // split lhs = high || low
+            const half_len = (lhs.len + lhs.scale) / 2;
+            const lhs_low = DCNum(false, lhs.value.length - half_len, 0, lhs.value[half_len .. $]);
+            const lhs_high = DCNum(false, half_len, 0, lhs.value[0 .. half_len]);
+
+            // high * rhs  || low * rhs
+            const low_result = DCNum.mul(lhs_low, rhs);
+            const high_result = DCNum.mul(lhs_high, rhs);
+            const high_value = high_result.value ~ new ubyte[](lhs.value.length - half_len);
+            return DCNum(false, high_value.length, 0, high_value) + low_result;
+        }
+        if (rhs_size > max_base_size)
+        {
+            // split rhs = high || low
+            const half_len = (rhs.len + rhs.scale) / 2;
+            const rhs_low = DCNum(false, rhs.value.length - half_len, 0, rhs.value[half_len .. $]);
+            const rhs_high = DCNum(false, half_len, 0, rhs.value[0 .. half_len]);
+
+            // high * lhs  || low * lhs
+            const low_result = DCNum.mul(rhs_low, lhs);
+            const high_result = DCNum.mul(rhs_high, lhs);
+            const high_value = high_result.value ~ new ubyte[](rhs.value.length - half_len);
+            return DCNum(false, high_value.length, 0, high_value) + low_result;
+        }
+
+        const base_size = max(lhs_size, rhs_size);
 
         // if both are small, calculate as long
         if (lhs.len + lhs.scale + rhs.len + rhs.scale < max_base_size)
@@ -583,7 +613,7 @@ public:
             const long z = x * y;
             ubyte[] buf = long_to_bytes(z);
             const uint new_scale = lhs.scale + rhs.scale;
-            return DCNum(false, cast(uint)(buf.length - new_scale), new_scale, buf);
+            return DCNum(false, buf.length - new_scale, new_scale, buf);
         }
 
         assert(base_size <= max_base_size); // TODO
@@ -597,19 +627,13 @@ public:
         // karatsuba algorithm
         const long z0 = x0 * y0;
         const long z2 = x1 * y1;
-        const long z1 = z2 + z0 - (x1 - x0) * (y1 - y0);
-
-        // buf0 = z0, buf1 = z1 * base, buf2 = z2 * base^2
+        const long z1 = z2 + z0 - (x1 - x0) * (y1 - y0); // buf0 = z0, buf1 = z1 * base, buf2 = z2 * base^2
         const buf0 = long_to_bytes(z0);
         const buf1 = long_to_bytes(z1) ~ new ubyte[](base_size);
-        const buf2 = long_to_bytes(z2) ~ new ubyte[](base_size * 2);
-
-        // convert to DCNum
+        const buf2 = long_to_bytes(z2) ~ new ubyte[](base_size * 2); // convert to DCNum
         const v0 = DCNum(false, cast(int) buf0.length, 0, buf0);
         const v1 = DCNum(false, cast(int) buf1.length, 0, buf1);
-        const v2 = DCNum(false, cast(int) buf2.length, 0, buf2);
-
-        // summing
+        const v2 = DCNum(false, cast(int) buf2.length, 0, buf2); // summing
         auto v = v0 + v1 + v2;
 
         // remove reading zeroes
@@ -619,15 +643,10 @@ public:
             p++;
         }
         v.value = v.value[p .. $];
-        v.len -= p;
-
-        // set scale
-        v.scale = lhs.scale + rhs.scale;
-        v.len -= v.scale;
         return v;
     }
 
-    DCNum opBinary(string op : "*")(DCNum rhs) const pure
+    DCNum opBinary(string op : "*")(in DCNum rhs) const pure
     {
         if (this.isZero || rhs.isZero)
         {
@@ -635,6 +654,8 @@ public:
         }
 
         auto v = DCNum.mul(this, rhs);
+        v.scale = this.scale + rhs.scale;
+        v.len = to!uint(v.value.length - v.scale);
         if (this.sign != rhs.sign)
         {
             v.sign = true;
@@ -655,11 +676,14 @@ public:
 
         // decimal values
         assert((DCNum("100000.123") * DCNum("100")).to!string == "10000012.300");
-        assert((DCNum("100000.123") * DCNum("0.01")).to!string == "1000.00123");
-
-        // very large number
+        assert((DCNum("100000.123") * DCNum("0.01")).to!string == "1000.00123"); // very large number
         assert((DCNum("9876543211234567899") * DCNum("100000000"))
                 .to!string == "987654321123456789900000000");
+
+        // rsa
+        const p = DCNum("7857843807357322428021380248993576655206988614176418792379176652835565059295420706559476442876718401226381634767797717201944708260927696952220575206571167");
+        const q = DCNum("11022865926124182806180388767382016652191532553299862348953322076764410256860215835703669245291707730752129977734682225290368939156485722324614823488258901");
+        assert((p * q).to!string == "86615958756924946592957282448568720038805999499540908216698775245619824596674378512195525165203154029569489225605263626685364659699870945114711447932248705556536031296400659122760841627071717950914771235328300476962435317906251410048014717963467669606882231758796075711787284426301244369129372556726977707467");
     }
 
 }
