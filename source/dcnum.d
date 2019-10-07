@@ -46,6 +46,19 @@ private:
         this.value = value.dup;
     }
 
+    void rescale(uint new_scale) pure
+    {
+        if (new_scale > this.scale)
+        {
+            this.value ~= new ubyte[](new_scale - this.scale);
+        }
+        else if (new_scale < this.scale)
+        {
+            this.value.length = this.value.length - (this.scale - new_scale);
+        }
+        this.scale = new_scale;
+    }
+
 public:
     /// copy constructor
     this(in DCNum num) pure
@@ -271,7 +284,7 @@ public:
 
     bool isZero() pure const
     {
-        return this.value == [0];
+        return this.value.all!"a == 0";
     }
 
     unittest
@@ -365,6 +378,14 @@ public:
         {
             return true;
         }
+        if (rhs < 0)
+        {
+            if (this.sign == false)
+            {
+                return false;
+            }
+            rhs = -rhs;
+        }
 
         long i = this.len - 1;
         while (true)
@@ -404,7 +425,10 @@ public:
         assert(DCNum(-1) > DCNum(-2));
         assert(DCNum("0.1") == DCNum("0.1"));
         assert(DCNum("0.1") == DCNum("0.10"));
-        assert(DCNum("0.1") < DCNum("0.101"));
+
+        assert(DCNum(0) == 0);
+        assert(DCNum(1) == 1);
+        assert(DCNum(-1) == -1);
     }
 
     /// add lhs and rhs
@@ -695,7 +719,8 @@ public:
 
     /// multiply lhs by integer rhs
     /// this function ignores len and scale properties
-    private static DCNum mul(T)(in DCNum lhs, T rhs) pure if (isIntegral!(T))
+    private static DCNum mul_by_const(T)(in DCNum lhs, T rhs) pure 
+            if (isIntegral!(T))
     in
     {
         assert((BASE - 1) * rhs <= ubyte.max);
@@ -727,6 +752,26 @@ public:
         return DCNum(buf[i + 1 .. $]);
     }
 
+    DCNum mul(in DCNum rhs, uint scale) const pure
+    {
+        if (this.isZero || rhs.isZero)
+        {
+            return DCNum(0);
+        }
+
+        auto v = DCNum.mul(this, rhs);
+        v.scale = min(this.scale + rhs.scale, max(scale, this.scale, rhs.scale));
+        if (v.value.length < v.scale)
+        {
+            v.value = new ubyte[](v.scale - v.value.length) ~ v.value;
+        }
+        if (this.sign != rhs.sign)
+        {
+            v.sign = true;
+        }
+        return v;
+    }
+
     unittest
     {
         alias TestCase = Tuple!(DCNum, int, string);
@@ -737,29 +782,14 @@ public:
         ];
         foreach (t; testcases)
         {
-            auto r = DCNum.mul(t[0], t[1]).to!string;
+            auto r = DCNum.mul_by_const(t[0], t[1]).to!string;
             assert(r == t[2], "Case: %s, Got: %s".format(t, r));
         }
     }
 
     DCNum opBinary(string op : "*")(in DCNum rhs) const pure
     {
-        if (this.isZero || rhs.isZero)
-        {
-            return DCNum(0);
-        }
-
-        auto v = DCNum.mul(this, rhs);
-        v.scale = this.scale + rhs.scale;
-        if (v.value.length < v.scale)
-        {
-            v.value = new ubyte[](v.scale - v.value.length) ~ v.value;
-        }
-        if (this.sign != rhs.sign)
-        {
-            v.sign = true;
-        }
-        return v;
+        return this.mul(rhs, this.scale + rhs.scale);
     }
 
     unittest
@@ -819,8 +849,8 @@ public:
         const auto d = (BASE / (r.value[0] + 1)).to!long;
         if (d != 1)
         {
-            l = DCNum.mul(l, d);
-            r = DCNum.mul(r, d);
+            l = DCNum.mul_by_const(l, d);
+            r = DCNum.mul_by_const(r, d);
         }
 
         ubyte[] q = [];
@@ -838,7 +868,7 @@ public:
             }
 
             // multiple and substract
-            auto x = DCNum.mul(r, qguess);
+            auto x = DCNum.mul_by_const(r, qguess);
             if (j > 0)
             {
                 x.value ~= new ubyte[](j - 1);
@@ -848,7 +878,7 @@ public:
             while (DCNum.cmp(l, x) < 0)
             {
                 qguess--;
-                x = DCNum.mul(r, qguess);
+                x = DCNum.mul_by_const(r, qguess);
                 if (j > 0)
                 {
                     x.value ~= new ubyte[](j - 1);
@@ -936,5 +966,36 @@ public:
         const n = DCNum("86615958756924946592957282448568720038805999499540908216698775245619824596674378512195525165203154029569489225605263626685364659699870945114711447932248705556536031296400659122760841627071717950914771235328300476962435317906251410048014717963467669606882231758796075711787284426301244369129372556726977707467");
         const q = DCNum("11022865926124182806180388767382016652191532553299862348953322076764410256860215835703669245291707730752129977734682225290368939156485722324614823488258901");
         assert((n / q).to!string == "7857843807357322428021380248993576655206988614176418792379176652835565059295420706559476442876718401226381634767797717201944708260927696952220575206571167");
+    }
+
+    DCNum mod(in DCNum rhs, uint scale) const pure
+    {
+        auto r = this.div(rhs, scale);
+        auto m = this - r * rhs;
+        m.rescale(scale);
+        return m;
+    }
+
+    unittest
+    {
+        assert(DCNum(10).mod(DCNum(3), 0) == 1);
+        assert(DCNum(10).mod(DCNum(3), 2) == DCNum("0.01"));
+        assert(DCNum(10).mod(DCNum("3.0"), 0) == DCNum("1.0"));
+        assert(DCNum(10).mod(DCNum("3.0"), 2) == DCNum("0.010"));
+        assert(DCNum(10).mod(DCNum("5.0"), 1000) == DCNum(0));
+    }
+
+    DCNum opBinary(string op : "%")(in DCNum rhs) const pure
+    {
+        return this.mod(rhs, max(this.scale, rhs.scale));
+    }
+
+    unittest
+    {
+        assert(DCNum(10) % DCNum(3) == 1);
+        assert(DCNum(-10) % DCNum(3) == -1);
+        assert(DCNum(10) % DCNum(-3) == 1);
+        assert(DCNum(10) % DCNum("3.0") == DCNum("0.1"));
+        assert(DCNum(10) % DCNum("3.000") == DCNum("0.001"));
     }
 }
