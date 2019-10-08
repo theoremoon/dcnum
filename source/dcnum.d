@@ -870,7 +870,12 @@ public:
         }
 
         // normalize
-        const auto d = (BASE / (r.value[0] + 1)).to!long;
+        auto d = ((BASE - 1) / r.value[0]).to!long;
+        auto rr = DCNum.mul_by_const(r, d);
+        if (rr.value[0] < BASE / 2)
+        {
+            d = (BASE / (r.value[0] + 1)).to!long;
+        }
         if (d != 1)
         {
             l = DCNum.mul_by_const(l, d);
@@ -987,10 +992,9 @@ public:
         assert(DCNum("10.000").div(DCNum("-2"), 1).to!string == "-5.0");
         assert(DCNum("-10.000").div(DCNum("2"), 1).to!string == "-5.0");
         assert(DCNum("138458412558.000000").div(DCNum("74.4200006"), 5) == DCNum("1860500019.37248"));
-        /* This test fails
         assert(DCNum("33333333333333333333333333")
                 .div(DCNum("248352686608866080.9427714159"), 11) == DCNum("134217727.97582189752"));
-                */
+        assert(DCNum(2).div(DCNum("1.5"), 1) == DCNum("1.3"));
     }
 
     DCNum opBinary(string op : "/")(in DCNum rhs) const pure
