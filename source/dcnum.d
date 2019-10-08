@@ -59,6 +59,13 @@ private:
         this.scale = new_scale;
     }
 
+    DCNum rescaled(uint new_scale) pure const
+    {
+        DCNum copy = DCNum(this);
+        copy.rescale(new_scale);
+        return copy;
+    }
+
 public:
     /// copy constructor
     this(in DCNum num) pure
@@ -68,7 +75,7 @@ public:
         this.value = num.value.dup;
     }
     /// constructor from Integral values
-    this(INT)(INT val) if (isIntegral!INT)
+    this(INT)(INT val) pure if (isIntegral!INT)
     {
 
         // zero is special case
@@ -132,7 +139,7 @@ public:
     }
 
     /// constructor from string.
-    this(string value)
+    this(string value) pure
     {
         // sign
         ulong p = 0;
@@ -752,26 +759,6 @@ public:
         return DCNum(buf[i + 1 .. $]);
     }
 
-    DCNum mul(in DCNum rhs, uint scale) const pure
-    {
-        if (this.isZero || rhs.isZero)
-        {
-            return DCNum(0);
-        }
-
-        auto v = DCNum.mul(this, rhs);
-        v.scale = min(this.scale + rhs.scale, max(scale, this.scale, rhs.scale));
-        if (v.value.length < v.scale)
-        {
-            v.value = new ubyte[](v.scale - v.value.length) ~ v.value;
-        }
-        if (this.sign != rhs.sign)
-        {
-            v.sign = true;
-        }
-        return v;
-    }
-
     unittest
     {
         alias TestCase = Tuple!(DCNum, int, string);
@@ -785,6 +772,42 @@ public:
             auto r = DCNum.mul_by_const(t[0], t[1]).to!string;
             assert(r == t[2], "Case: %s, Got: %s".format(t, r));
         }
+    }
+
+    DCNum mul(in DCNum rhs, uint scale) const pure
+    {
+        if (this.isZero || rhs.isZero)
+        {
+            return DCNum(0);
+        }
+
+        auto v = DCNum.mul(this, rhs);
+        int v_scale = this.scale + rhs.scale;
+        if (v.value.length < v_scale)
+        {
+            v.value = new ubyte[](v_scale - v.value.length) ~ v.value;
+        }
+        v.scale = max(scale, min(this.scale, rhs.scale));
+        if (v.scale < v_scale)
+        {
+            v.value.length = v.value.length - (v_scale - v.scale);
+        }
+
+        if (this.sign != rhs.sign)
+        {
+            v.sign = true;
+        }
+        return v;
+    }
+
+    unittest
+    {
+        import std.stdio;
+
+        assert(DCNum("1.00").mul(DCNum("0.5"), 2) == DCNum("0.50"));
+        assert(DCNum("1.00").mul(DCNum("0.5"), 3) == DCNum("0.50"));
+        assert(DCNum("1.000").mul(DCNum("0.5"), 2) == DCNum("0.50"));
+        assert(DCNum("3.00").mul(DCNum("0.5"), 2) == DCNum("1.50"));
     }
 
     DCNum opBinary(string op : "*")(in DCNum rhs) const pure
@@ -804,6 +827,7 @@ public:
                 .to!string == "98765432112345678900000000");
 
         // decimal values
+        assert((DCNum("2") * DCNum("0.5")) == DCNum("1.0"));
         assert((DCNum("100000.123") * DCNum("100")).to!string == "10000012.300");
         assert((DCNum("0.123") * DCNum("0.01")).to!string == "0.00123"); // very large number
         assert((DCNum("100000.123") * DCNum("0.01")).to!string == "1000.00123"); // very large number
@@ -839,7 +863,7 @@ public:
         {
             return DCNum(0);
         }
-        if (r.value.length < 2)
+        while (l.value.length <= 2 || r.value.length <= 2)
         {
             l.value ~= [0];
             r.value ~= [0];
@@ -859,7 +883,17 @@ public:
         {
             // guess q
             auto qguess = (l.value[0] * BASE + l.value[1]) / r.value[0];
-            auto rguess = (l.value[0] * BASE + l.value[1]) % r.value[0];
+            auto rguess = (l.value[0] * BASE + l.value[1]) - qguess * r.value[0];
+            if (qguess == BASE && rguess == 0)
+            {
+                auto x = DCNum(r);
+                x.value ~= new ubyte[](j);
+                if (DCNum.cmp(l, x) == 0)
+                {
+                    q ~= cast(ubyte[])[1] ~ new ubyte[](j);
+                    break;
+                }
+            }
             while (rguess < BASE && (qguess >= BASE || qguess * r.value[1]
                     > BASE * rguess + l.value[2]))
             {
@@ -902,6 +936,7 @@ public:
 
     unittest
     {
+        assert(DCNum.div(DCNum(10), DCNum(5)) == 2);
         assert(DCNum.div(DCNum(1000), DCNum(5)) == 200);
         assert(DCNum.div(DCNum(1000), DCNum(50)) == 20);
         assert(DCNum.div(DCNum("100000000000"), DCNum(5)).to!string == "20000000000");
@@ -941,6 +976,7 @@ public:
 
     unittest
     {
+        assert(DCNum(2).div(DCNum(2), 10).to!string == "1.0000000000");
         assert(DCNum(10).div(DCNum(3), 10).to!string == "3.3333333333");
         assert(DCNum(10).div(DCNum("3.0"), 10).to!string == "3.3333333333");
         assert(DCNum(10).div(DCNum("3.3"), 10).to!string == "3.0303030303");
@@ -950,6 +986,11 @@ public:
         assert(DCNum("10.000").div(DCNum("2"), 1).to!string == "5.0");
         assert(DCNum("10.000").div(DCNum("-2"), 1).to!string == "-5.0");
         assert(DCNum("-10.000").div(DCNum("2"), 1).to!string == "-5.0");
+        assert(DCNum("138458412558.000000").div(DCNum("74.4200006"), 5) == DCNum("1860500019.37248"));
+        /* This test fails
+        assert(DCNum("33333333333333333333333333")
+                .div(DCNum("248352686608866080.9427714159"), 11) == DCNum("134217727.97582189752"));
+                */
     }
 
     DCNum opBinary(string op : "/")(in DCNum rhs) const pure
@@ -997,5 +1038,64 @@ public:
         assert(DCNum(10) % DCNum(-3) == 1);
         assert(DCNum(10) % DCNum("3.0") == DCNum("0.1"));
         assert(DCNum(10) % DCNum("3.000") == DCNum("0.001"));
+    }
+
+    /// Find square root by Newton's algorithm
+    /// this function assumes this >= 0
+    /// the returned value has specified scale
+    DCNum sqrt(uint scale) const pure
+    {
+        // check this
+        if (DCNum.cmp(this, DCNum(0)) <= 0)
+        {
+            throw new DCNumException("negative or zero value given for sqrt");
+        }
+
+        // guess the start value
+        DCNum guess;
+        final switch (DCNum.cmp(this, DCNum(1)))
+        {
+        case 0:
+            return DCNum(1).rescaled(scale);
+        case -1:
+            guess = DCNum(1);
+            break;
+        case 1:
+            guess = DCNum(cast(ubyte[])([1]) ~ new ubyte[](this.len / 2));
+            break;
+        }
+
+        // newton's algorithm
+        while (true)
+        {
+            // update guess
+            DCNum new_guess = (this.div(guess, scale + 1) + guess).mul(DCNum("0.5"), scale);
+            DCNum diff = new_guess - guess;
+            guess = DCNum(new_guess);
+            // check diff is near the zero
+            if (diff.value[0 .. $ - 1].all!"a == 0" && diff.value[$ - 1] <= 0)
+            {
+                break;
+            }
+        }
+
+        guess.rescale(scale);
+        return guess;
+    }
+
+    unittest
+    {
+        assertThrown!DCNumException(DCNum(0).sqrt(1));
+        assertThrown!DCNumException(DCNum(-4).sqrt(1));
+
+        assert(DCNum(2).sqrt(0) == DCNum("1"));
+        assert(DCNum(2).sqrt(1) == DCNum("1.4"));
+        assert(DCNum(2).sqrt(5) == DCNum("1.41421"));
+        assert(DCNum(2).sqrt(10) == DCNum("1.4142135623"));
+
+        assert(DCNum(4).sqrt(0) == DCNum("2"));
+        assert(DCNum(16).sqrt(1) == DCNum("4.0"));
+        assert(DCNum("9.99").sqrt(5) == DCNum("3.16069"));
+        assert(DCNum("33333333333333333333333333").sqrt(10) == DCNum("5773502691896.2576450914"));
     }
 }
