@@ -972,7 +972,6 @@ public:
     {
         auto r = this.div(rhs, scale);
         auto m = this - r * rhs;
-        m.rescale(scale);
         return m;
     }
 
@@ -983,6 +982,7 @@ public:
         assert(DCNum(10).mod(DCNum("3.0"), 0) == DCNum("1.0"));
         assert(DCNum(10).mod(DCNum("3.0"), 2) == DCNum("0.010"));
         assert(DCNum(10).mod(DCNum("5.0"), 1000) == DCNum(0));
+        assert(DCNum(-2).mod(DCNum("1.60"), 0) == DCNum("-0.40"));
     }
 
     DCNum opBinary(string op : "%")(in DCNum rhs) const pure
