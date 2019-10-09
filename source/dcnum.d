@@ -1,8 +1,8 @@
 module dcnum;
 
-import std.traits : isIntegral;
+import std.traits : isIntegral, isUnsigned;
 import std.typecons : tuple, Tuple;
-import std.conv : to;
+import std.conv : to, ConvOverflowException;
 import std.math : log10;
 import std.format : format;
 import std.array : join;
@@ -87,14 +87,14 @@ public:
             return;
         }
 
-        if (val < 0)
+        this.sign = false;
+        static if (!isUnsigned!INT)
         {
-            this.sign = true;
-            val = -val;
-        }
-        else
-        {
-            this.sign = false;
+            if (val < 0)
+            {
+                this.sign = true;
+                val = cast(INT)(0 - val);
+            }
         }
 
         uint index = 0;
@@ -254,7 +254,7 @@ public:
         assertNotThrown!DCNumException(DCNum(".0"));
     }
 
-    string toString() const
+    string toString() const pure
     {
         string s = "";
         if (this.sign)
@@ -268,13 +268,13 @@ public:
         }
         else
         {
-            s ~= this.value[0 .. this.len].map!(to!string).join("");
+            s ~= this.value[0 .. this.len].map!(x => x.to!string).join("");
         }
 
         if (this.scale > 0)
         {
             s ~= ".";
-            s ~= this.value[this.len .. this.len + this.scale].map!(to!string).join("");
+            s ~= this.value[this.len .. this.len + this.scale].map!(x => x.to!string).join("");
         }
 
         return s;
@@ -287,6 +287,49 @@ public:
         assert(DCNum("100").to!string == "100");
         assert(DCNum("0.100").to!string == "0.100");
         assert(DCNum("-10.1").to!string == "-10.1");
+    }
+
+    T to(T)() const pure if (is(T : string))
+    {
+        return this.toString();
+    }
+
+    T to(T)() const pure if (isIntegral!(T))
+    {
+        if (DCNum.cmp(this, DCNum(T.max)) > 0)
+        {
+            throw new ConvOverflowException("Conversion positive overflow");
+        }
+        static if (isUnsigned!(T))
+        {
+            if (this.sign)
+            {
+                throw new ConvOverflowException("Conversion negative overflow");
+            }
+        }
+
+        T v = cast(T)(0);
+        foreach (x; this.value[0 .. this.len])
+        {
+            v = cast(T)(v * BASE + x);
+        }
+        if (this.sign)
+        {
+            v = cast(T)(0 - v);
+        }
+        return v;
+    }
+
+    unittest
+    {
+        assert(DCNum("10000").to!int == 10000);
+        assert(DCNum("10000.2345").to!int == 10000);
+        assert(DCNum("10000.9").to!int == 10000);
+        assert(DCNum("0.9").to!int == 0);
+        assert(DCNum(-1).to!byte == -1);
+        assertThrown!ConvOverflowException(DCNum(10000).to!ubyte);
+        assertThrown!ConvOverflowException(DCNum(-1).to!ubyte);
+        assertThrown!ConvOverflowException(DCNum(10000).to!ubyte);
     }
 
     bool isZero() pure const
@@ -470,7 +513,7 @@ public:
         ubyte[] buf = new ubyte[](lhs_value.length);
         foreach_reverse (i; 0 .. lhs_value.length)
         {
-            buf[i] = to!(ubyte)(lhs_value[i] + rhs_value[i] + carry);
+            buf[i] = (lhs_value[i] + rhs_value[i] + carry).to!(ubyte);
             if (buf[i] >= BASE)
             {
                 carry = 1;
