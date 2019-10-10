@@ -66,6 +66,13 @@ private:
         return copy;
     }
 
+    unittest
+    {
+        assert(DCNum(1).rescaled(5) == DCNum("1.00000"));
+        assert(DCNum("1.234567").rescaled(5) == DCNum("1.23456"));
+        assert(DCNum("625.0000").rescaled(1) == DCNum("625.0"));
+    }
+
 public:
     /// copy constructor
     this(in DCNum num) pure
@@ -230,6 +237,12 @@ public:
         assert(floating.len == 4);
         assert(floating.scale == 5);
         assert(floating.value == [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+        const floating_zero = DCNum("0.56789");
+        assert(floating_zero.sign == false);
+        assert(floating_zero.len == 0);
+        assert(floating_zero.scale == 5);
+        assert(floating_zero.value == [5, 6, 7, 8, 9]);
 
         const trailing_zero = DCNum("-1234.567890");
         assert(trailing_zero.sign == true);
@@ -1014,6 +1027,10 @@ public:
 
         auto v = DCNum.div(lhs, rhs);
         v.value.length = v.value.length - this.scale;
+        if (v.value.length < scale)
+        {
+            v.value = new ubyte[](scale - v.value.length) ~ v.value;
+        }
         v.scale = scale;
         if (this.sign != rhs.sign)
         {
@@ -1038,6 +1055,7 @@ public:
         assert(DCNum("33333333333333333333333333")
                 .div(DCNum("248352686608866080.9427714159"), 11) == DCNum("134217727.97582189752"));
         assert(DCNum(2).div(DCNum("1.5"), 1) == DCNum("1.3"));
+        assert(DCNum(1).div(DCNum("625.000000"), 4) == DCNum("0.0016"));
     }
 
     DCNum opBinary(string op : "/")(in DCNum rhs) const pure
@@ -1144,5 +1162,76 @@ public:
         assert(DCNum(16).sqrt(1) == DCNum("4.0"));
         assert(DCNum("9.99").sqrt(5) == DCNum("3.16069"));
         assert(DCNum("33333333333333333333333333").sqrt(10) == DCNum("5773502691896.2576450914"));
+    }
+
+    /// raise this to the exponent power
+    DCNum raise(long exponent, uint scale) pure const
+    {
+        if (exponent == 0)
+        {
+            return DCNum(1);
+        }
+
+        bool neg;
+        if (exponent < 0)
+        {
+            neg = true;
+            exponent = -exponent;
+        }
+        else
+        {
+            neg = false;
+            scale = min(this.scale * exponent, max(this.scale, scale)).to!uint;
+        }
+
+        DCNum pow = DCNum(this);
+        uint pow_scale = this.scale;
+        while ((exponent & 1) == 0)
+        {
+            pow_scale <<= 1;
+            pow = pow.mul(pow, pow_scale);
+            exponent >>= 1;
+        }
+
+        DCNum result = DCNum(pow);
+        uint calc_scale = pow_scale;
+        exponent >>= 1;
+        while (exponent > 0)
+        {
+            pow_scale <<= 1;
+            pow = pow.mul(pow, pow_scale);
+            if (exponent & 1)
+            {
+                calc_scale += pow_scale;
+                result = result.mul(pow, calc_scale);
+            }
+            exponent >>= 1;
+        }
+
+        if (neg)
+        {
+            return DCNum(1).div(result, scale);
+        }
+        else
+        {
+            return result.rescaled(scale);
+        }
+    }
+
+    unittest
+    {
+        import std.stdio;
+
+        assert(DCNum(2).raise(3, 0) == DCNum(8));
+        assert(DCNum("5.0").raise(4, 0) == DCNum("625.0"));
+        assert(DCNum("1.234").raise(5, 0) == DCNum("2.861"));
+        assert(DCNum("1.234").raise(5, 10) == DCNum("2.8613817210"));
+        assert(DCNum("1.234").raise(5, 20) == DCNum("2.861381721051424"));
+
+        assert(DCNum(2).raise(-3, 0) == DCNum("0"));
+        assert(DCNum(2).raise(-3, 1) == DCNum("0.1"));
+        assert(DCNum(2).raise(-3, 5) == DCNum("0.12500"));
+        assert(DCNum("5.0000000").raise(-4, 0) == DCNum("0"));
+        assert(DCNum("5.0000000").raise(-4, 10) == DCNum("0.0016000000"));
     }
 }
